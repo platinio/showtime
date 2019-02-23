@@ -1,9 +1,22 @@
 <?php
 
 include "includes/config.php";
+include "email-helper.php";
 
-//$dom = file_get_html('https://www.cinecalidad.to/');
-$dom = file_get_html('https://www.cinecalidad.to/page/12/');
+define('DBHOST' , 'localhost');
+define('DBUSER' , 'jamesroman94');
+define('DBPASS' , 'Jr3472773');
+define('DBNAME' , 'showtime');
+define('MYEMAIL' , 'platinio94@gmail.com');
+
+ $db = new PDO("mysql:host=".DBHOST.";dbname=".DBNAME, DBUSER, DBPASS);
+ $db->setAttribute(PDO::ATTR_ERRMODE , PDO::ERRMODE_EXCEPTION);
+
+
+
+
+$dom = file_get_html('https://www.cinecalidad.to/');
+//$dom = file_get_html('https://www.cinecalidad.to/page/12/');
 
 $favoritetags = array('Accion',
                       'Comedia',
@@ -38,8 +51,13 @@ $favoriteactors = array('Tom Cruise',
                         'Sylvester Stallone',
                         'Christian Bale',
                         'Jason Statham',
-                        '');
+                        'Adam Sandler',
+                        'Kevin James',
+                        'Chris Rock',
+                        'Salma Hayek');
 
+$minvotes = 1000;
+$minscore = 5;
 
 $answer = array();
 
@@ -62,11 +80,18 @@ if(!empty($dom))
       $answer[$i]["link"] = $anchor->href;
     }
 
+    //get img
+    $answer[$i]["img"] = $divclass->find('img')[0]->src;
+
     $moviedom = file_get_html($answer[$i]["link"]);
 
 
+    $imdbbox = $moviedom->find("#imdb-box")[0];
+    $answer[$i]["score"] = explode("/" , $imdbbox->find("a")[0]->plaintext)[0];
 
-    $answer[$i]["score"] = explode("/" , $moviedom->find("#imdb-box")[0]->find("a")[0]->plaintext)[0];
+    //get votes
+    $answer[$i]["votes"] = explode( ' ' , $imdbbox->plaintext)[11];
+    //echo $imdbbox->plaintext;
 
 
     foreach($moviedom->find("p span") as $span)
@@ -125,24 +150,31 @@ $i = 0;
 foreach ($answer as $movie)
 {
   $moviecleandata[$i]['title'] = $movie['title'];
+  $moviecleandata[$i]['img'] = $movie['img'];
+$moviecleandata[$i]['link'] = $movie['link'];
+  if($movie['score'] >= 7)
+  {
 
-if($movie['score'] >= 7)
-{
+    $moviecleandata[$i]['score'] = 1.7;
+  }
+  else if ($movie['score'] > 6.5)
+  {
+    $moviecleandata[$i]['score'] = 1.0;
+  }
+  else if($movie['score'] > 6)
+  {
+    $moviecleandata[$i]['score'] = 0.5;
+  }
+  else
+  {
+      $moviecleandata[$i]['score'] = 0;
+  }
 
-  $moviecleandata[$i]['score'] = 1.7;
-}
-else if ($movie['score'] > 6.5)
-{
-  $moviecleandata[$i]['score'] = 1.0;
-}
-else if($movie['score'] > 6)
-{
-  $moviecleandata[$i]['score'] = 0.5;
-}
-else
-{
-    $moviecleandata[$i]['score'] = 0;
-}
+  //this movie dont have enought votes lets reduce his score for our safe
+  if($movie['votes'] < $minvotes)
+  {
+    $moviecleandata[$i]['score'] = $moviecleandata[$i]['score'] / 2;
+  }
 
 
 
@@ -171,7 +203,39 @@ else
   $i++;
 }
 
-print_r($moviecleandata);
+$selectedmovies = array();
+
+$i = 0;
+foreach ($moviecleandata as $movie)
+{
+  if($movie['score'] > $minscore)
+  {
+    $stmt = $db->prepare('SELECT * FROM movie_recomended WHERE movie_slug = :movie_slug');
+    $stmt->execute(array(':movie_slug' => str_replace(' ' , '' , strtolower($movie['title']))));
+    $row = $stmt->fetch();
+
+    if(empty($row))
+    {
+      $selectedmovies[$i] = $movie;
+
+      $stmt = $db->prepare('INSERT INTO movie_recomended (movie_slug) VALUES (:movie_slug)') ;
+      $stmt->execute(array(
+          ':movie_slug' => str_replace(' ' , '' , strtolower($movie['title']))
+      ));
+    }
+
+
+  }
+  $i++;
+}
+
+if(count($selectedmovies) > 0)
+{
+  sendmovies($selectedmovies);
+}
+
+
+//print_r($moviecleandata);
 
 
  ?>
